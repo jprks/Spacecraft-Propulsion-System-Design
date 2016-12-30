@@ -279,6 +279,8 @@ function Mach = solve_mach(A,At,k)
 %   solve Mach number from area ratio by Newton-Raphson Method. (assume
 %   supersonic)
 %   https://www.grc.nasa.gov/WWW/winddocs/utilities/b4wind_guide/mach.html
+%   Given by Phil Lindin: Thruster Design Utility
+%   Github: https://github.com/runphilrun/TDU
 P = 2/(k+1);
 Q = 1-P;
 R = (A/At).^((2*Q)/P);
