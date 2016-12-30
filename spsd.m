@@ -41,6 +41,7 @@ gas_constant_unit = '[J/kgK]';
 molar_mass_unit = '[kg/mol]';
 area_unit = '[m^2]';
 volume_unit = '[m^3]';
+newton_time = '[Ns]';
 
 %% Chamber Conditions
 propellant_data = xlsread('RPSD Propellant Info.xlsx');
@@ -71,9 +72,11 @@ specific_heat_ratio = heat_ratio_data(propellant,1);
 specific_gas_constant = universal_gas_constant/molar_mass;
 
 %% Throat Conditons
-throat_temperature = chamber_temperature*(2/(specific_heat_ratio+1));
+chamber_pressure(1) = chamber_pressure;
 
-throat_pressure = chamber_pressure*(2/(specific_heat_ratio+1))^(specific_heat_ratio/(specific_heat_ratio-1));
+throat_temperature = chamber_temperature(1)*(2/(specific_heat_ratio+1));
+
+throat_pressure = chamber_pressure(1)*(2/(specific_heat_ratio+1))^(specific_heat_ratio/(specific_heat_ratio-1));
 
 throat_density = throat_pressure/(specific_gas_constant*throat_temperature);
 
@@ -81,32 +84,32 @@ throat_velocity = sqrt(specific_heat_ratio*specific_gas_constant*throat_temperat
 
 mass_flowrate_I = throat_density*throat_velocity*throat_area;
 
-mass_flowrate_II = throat_area*chamber_pressure*specific_heat_ratio*sqrt((2/(specific_heat_ratio+1))^((specific_heat_ratio+1)/(specific_heat_ratio-1)))/(sqrt(specific_heat_ratio...
+mass_flowrate_II = throat_area*chamber_pressure(1)*specific_heat_ratio*sqrt((2/(specific_heat_ratio+1))^((specific_heat_ratio+1)/(specific_heat_ratio-1)))/(sqrt(specific_heat_ratio...
     *specific_gas_constant*chamber_temperature));
 
 %% Exit Conditions
 exit_mach = solve_mach(exit_area,throat_area,specific_heat_ratio);
 
-exit_temperature = chamber_temperature/(1+(specific_heat_ratio-1)/2*exit_mach^2);
+exit_temperature(1) = chamber_temperature(1)/(1+(specific_heat_ratio-1)/2*exit_mach^2);
 
-mass_flowrate_III = specific_heat_ratio*chamber_pressure*exit_area*exit_mach/sqrt(specific_heat_ratio*specific_gas_constant*chamber_temperature)*(1+(specific_gas_constant-1)/2*exit_mach^2)^((2-specific_heat_ratio)/2);
+mass_flowrate_III = specific_heat_ratio*chamber_pressure(1)*exit_area*exit_mach/sqrt(specific_heat_ratio*specific_gas_constant*chamber_temperature)*(1+(specific_gas_constant-1)/2*exit_mach^2)^((2-specific_heat_ratio)/2);
 
 temperature_ratio = chamber_temperature/exit_temperature;
 
 exhaust_velocity = exit_mach*sqrt(specific_heat_ratio*specific_gas_constant*exit_temperature);
 
-exit_pressure = chamber_pressure/(temperature_ratio)^(specific_heat_ratio/(specific_heat_ratio-1));
+exit_pressure = chamber_pressure(1)/(temperature_ratio)^(specific_heat_ratio/(specific_heat_ratio-1));
 
-pressure_ratio = exit_pressure/chamber_pressure;
+pressure_ratio = exit_pressure/chamber_pressure(1);
 
 %% System Performance
 
 effective_exhaust_velocity = exhaust_velocity+exit_pressure*exit_area/mass_flowrate_I;
 
-thrust_coefficient = sqrt(2*specific_heat_ratio^2/(specific_heat_ratio-1))*(2/(specific_heat_ratio+1))^((specific_heat_ratio+1)/(specific_heat_ratio-1))...
+thrust_coefficient(1) = sqrt(2*specific_heat_ratio^2/(specific_heat_ratio-1))*(2/(specific_heat_ratio+1))^((specific_heat_ratio+1)/(specific_heat_ratio-1))...
     *(1-(pressure_ratio)^((specific_heat_ratio-1)/(specific_heat_ratio+1)))+pressure_ratio*area_ratio;
 
-thrust_force_I = thrust_coefficient*chamber_pressure*throat_area;
+thrust_force_I = thrust_coefficient*chamber_pressure(1)*throat_area;
 
 thrust_force_II = effective_exhaust_velocity*mass_flowrate_I;
 
@@ -116,43 +119,73 @@ specific_impulse_I = thrust_force_I*standard_gravity/mass_flowrate_I;
 
 specific_impulse_II = effective_exhaust_velocity/standard_gravity;
 
-thrust_force_IV = mass_flowrate_I*specific_impulse_II/standard_gravity;
+thrust_force_IV(1) = mass_flowrate_I*specific_impulse_II/standard_gravity;
 
 final_mass = initial_mass/exp(system_velocity/effective_exhaust_velocity);
 
-propellant_mass = abs(final_mass - initial_mass);
+propellant_mass(1) = abs(final_mass - initial_mass);
 
 burn_time = propellant_mass/mass_flowrate_I;
 
 mass_ratio = initial_mass/final_mass;
 
 %% Tank Conditions
-
-volume = propellant_mass*specific_gas_constant*chamber_temperature/chamber_pressure;
-
 switch chamber_geometry
     case 1
         geometry = 'Spherical';
-        spherical_tank_radius = (3*volume/(4*pi))^(1/3);
-        tank_radius = spherical_tank_radius;
+        radius = 0.05;
+        spherical_volume = propellant_mass*specific_gas_constant*chamber_temperature/chamber_pressure(1)
+        volume = spherical_volume;
     case 2
         geometry = 'Rectangular';
         length = 0.1;
         height = 0.1;
-        width = volume/(length*height);
-        tank_radius = width;
+        width = 0.05;
+        rectangular_volume = propellant_mass*specific_gas_constant*chamber_temperature/chamber_pressure(1);
+        volume = rectangular_volume;
     case 3
         geometry = 'Cylindrical';
         height = 0.1;
-        cylindrical_tank_radius = sqrt(volume/(pi*height));
-        tank_radius = cylindrical_tank_radius;
+        radius = 0.05;
+        cylindrical_volume = propellant_mass*specific_gas_constant*chamber_temperature/chamber_pressure(1)
+        volume = cylindrical_volume;
     case 4
         geometry = 'Toroidal';
         minor_radius = 1;
         major_radius = 1;
-        torus_volume = (pi*minor_radius^2)*(2*pi*major_radius);
+        torus_volume = propellant_mass*specific_gas_constant*chamber_temperature/chamber_pressure(1)
         volume = torus_volume;
 end
+
+%% Iteration Sequence
+dt = 1*10^-3;
+i = 1;
+t(1) = 0;
+lim = 1*10^3
+
+while chamber_pressure >= lim
+    dm = mass_flowrate_I*dt;
+    propellant_mass(i+1) = propellant_mass(i) - dm;
+    chamber_pressure(i+1) = propellant_mass(i+1)*specific_gas_constant*chamber_temperature/volume;
+    exit_pressure(i+1) = chamber_pressure(i+1)/((temperature_ratio)^(specific_heat_ratio/(specific_heat_ratio-1)));
+    thrust_coefficient(i+1) = sqrt(2*specific_heat_ratio^2/(specific_heat_ratio-1))*(2/(specific_heat_ratio+1))^((specific_heat_ratio+1)/(specific_heat_ratio-1))...
+        *(1-(exit_pressure(i+1)/chamber_pressure(i+1))^((specific_heat_ratio-1)/specific_heat_ratio))+(exit_pressure(i+1)/chamber_pressure(i+1))*(area_ratio);
+    thrust_force_I(i+1) = thrust_coefficient(i+1)*chamber_pressure(i+1)*throat_area;
+    acceleration(i+1) = thrust_force_I(i+1)*dt*1/dm;
+    velocity(i+1) = acceleration(i+1)*dt;
+    distance(i+1) = velocity(i+1)*dt;
+    
+    impulse_bit(i) = thrust_force_I(i+1)*dt;
+    velocity_bit(i) = velocity(i+1)*dt;
+    
+    i = i + 1;
+    t(i+1) = t(1) + dt;
+end
+
+total_impulse = sum(impulse_bit); 
+specific_impulse = total_impulse/(propellant_mass(1)*standard_gravity);
+
+delta_velocity = sum(velocity_bit);
 
 %% Results
 linedivider = '------------';
@@ -173,8 +206,8 @@ result = {'Propellant','',PropellantName;
     linedivider,'','';
     'Tank Geometry',geometry,'';
     'Volume',volume,volume_unit;
-    'Chamber Pressure',chamber_pressure,pressure_unit;
-    'Tank Radius',tank_radius,distance_unit;
+    'Chamber Pressure',chamber_pressure(1),pressure_unit;
+%     'Tank Radius',tank_radius,distance_unit;
     linedivider,'','';
     'Throat Conditions','','';
     linedivider,'','';
@@ -212,15 +245,22 @@ result = {'Propellant','',PropellantName;
     'Initial Mass',initial_mass,mass_unit;
     'Mass Ratio',mass_ratio,unitless;
     'Propellant Mass',propellant_mass,mass_unit;
-    'Burn Time',burn_time,time_unit};
+    'Burn Time',burn_time,time_unit;
+    linedivider,'','';
+    'Iterated Values','','';
+    linedivider,'','';
+    'Total Impulse',total_impulse,newton_time;
+    'Specific Impulse',specific_impulse,newton_time;
+    'Delta Velocity',delta_velocity,velocity_unit};
+    
 display(result)
 
 exceldata = {'Variable','Magnitude','Unit';'Propellant',PropellantName,unitless;'Specific Gas Constant',specific_gas_constant,gas_constant_unit;...
     'Molar Mass',molar_mass,molar_mass_unit;'Specific Heat Ratio',specific_heat_ratio,unitless;'Nozzle Conditions',linedivider,linedivider;...
     'Nozzle Length',nozzle_length,distance_unit;'Exit Radius',exit_radius,distance_unit;'Throat Radius',throat_radius,distance_unit;...
     'Exit Area',exit_area,area_unit;'Throat Area',throat_area,area_unit;'Chamber Conditions',linedivider,linedivider;...
-    'Tank Geometry',geometry,unitless;'Tank Volume',volume,volume_unit;'Chamber Pressure',chamber_pressure,pressure_unit;...
-    'Tank Dimension or Radius',tank_radius,distance_unit;'Throat Conditions',linedivider,linedivider;...
+    'Tank Geometry',geometry,unitless;'Tank Volume',volume,volume_unit;'Chamber Pressure',chamber_pressure(1),pressure_unit;...
+    'Throat Conditions',linedivider,linedivider;...
     'Throat Area',throat_area,area_unit;'Throat Radius',throat_radius,distance_unit;'Throat Temperature',throat_temperature,temperature_unit;...
     'Throat Pressure',throat_pressure,pressure_unit;'Throat Density',throat_density,density_unit;'Throat Velocity',throat_velocity,velocity_unit;...
     'Exit Conditions',linedivider,linedivider;'Exit Temperature',exit_temperature,temperature_unit;'Exit Pressure',exit_pressure,pressure_unit;...
